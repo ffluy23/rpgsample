@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>미니게임 샘플</title>
+  <style>
+    body { margin: 0; background:#111; display:flex; justify-content:center; align-items:center; height:100vh; }
+    canvas { image-rendering: pixelated; border: 1px solid #333; background:#000; }
+    .hint { position: fixed; bottom: 12px; color: #bbb; font: 14px/1.2 system-ui; text-align:center; width:100%; }
+  </style>
+</head>
+<body>
+  <canvas id="game" width="512" height="384"></canvas>
+  <div class="hint">이동: 방향키 / 달리기: Shift</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d");
+
+  // 타일맵(0=바닥, 1=벽)
+  const TILE = 32;
+  const mapW = 20, mapH = 15;
+  const map = Array.from({length: mapH}, (_, y) =>
+    Array.from({length: mapW}, (_, x) => {
+      // 테두리 벽 + 랜덤 장애물
+      if (x === 0 || y === 0 || x === mapW-1 || y === mapH-1) return 1;
+      if ((x === 6 && y >= 3 && y <= 10) || (y === 8 && x >= 10 && x <= 16)) return 1;
+      return 0;
+    })
+  );
+
+  // 입력
+  const keys = new Set();
+  window.addEventListener("keydown", (e) => {
+    if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Shift"].includes(e.key)) e.preventDefault();
+    keys.add(e.key);
+  });
+  window.addEventListener("keyup", (e) => keys.delete(e.key));
+
+  // 플레이어
+  const player = {
+    x: 2 * TILE,
+    y: 2 * TILE,
+    w: 20, h: 24,               
+    dir: "down",                
+    moving: false,
+    frame: 0,                  
+    frameTimer: 0
+  };
+
+  function isWallAt(px, py) {
+    const tx = Math.floor(px / TILE);
+    const ty = Math.floor(py / TILE);
+    if (tx < 0 || ty < 0 || tx >= mapW || ty >= mapH) return true;
+    return map[ty][tx] === 1;
+  }
+
+  function collides(nx, ny) {
+    const left   = nx;
+    const right  = nx + player.w;
+    const top    = ny;
+    const bottom = ny + player.h;
+
+    return (
+      isWallAt(left, top) ||
+      isWallAt(right, top) ||
+      isWallAt(left, bottom) ||
+      isWallAt(right, bottom)
+    );
+  }
+
+  function update(dt) {
+    let vx = 0, vy = 0;
+    const speed = (keys.has("Shift") ? 150 : 95); // px/sec
+
+    if (keys.has("ArrowUp"))    { vy -= 1; player.dir = "up"; }
+    if (keys.has("ArrowDown"))  { vy += 1; player.dir = "down"; }
+    if (keys.has("ArrowLeft"))  { vx -= 1; player.dir = "left"; }
+    if (keys.has("ArrowRight")) { vx += 1; player.dir = "right"; }
+
+    // 대각선 보정
+    if (vx && vy) { const inv = 1 / Math.sqrt(2); vx *= inv; vy *= inv; }
+
+    player.moving = (vx !== 0 || vy !== 0);
+
+    const nx = player.x + vx * speed * dt;
+    const ny = player.y + vy * speed * dt;
+
+    // 축 분리 충돌(벽에 미끄러지듯)
+    let tryX = nx, tryY = player.y;
+    if (!collides(tryX, tryY)) player.x = tryX;
+
+    tryX = player.x; tryY = ny;
+    if (!collides(tryX, tryY)) player.y = tryY;
+
+    // 걷기
+    if (player.moving) {
+      player.frameTimer += dt;
+      if (player.frameTimer >= 0.12) {
+        player.frameTimer = 0;
+        player.frame = (player.frame + 1) % 3; // 0,1,2
+      }
+    } else {
+      player.frame = 1; // 가운데 프레임(정지 포즈 느낌)
+      player.frameTimer = 0;
+    }
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // 맵
+    for (let y = 0; y < mapH; y++) {
+      for (let x = 0; x < mapW; x++) {
+        const t = map[y][x];
+        ctx.fillStyle = t === 1 ? "#2b2b2b" : "#141414";
+        ctx.fillRect(x*TILE, y*TILE, TILE, TILE);
+        // 격자 느낌
+        ctx.strokeStyle = "#0b0b0b";
+        ctx.strokeRect(x*TILE, y*TILE, TILE, TILE);
+      }
+    }
+
+    // 플레이어(프레임 표시만)
+    const dirMark = { up:"↑", down:"↓", left:"←", right:"→" }[player.dir];
+
+    // 몸통
+    ctx.fillStyle = "#6ae";
+    ctx.fillRect(player.x, player.y, player.w, player.h);
+
+    // 머리
+    const bob = (player.frame === 1 ? 0 : (player.frame === 0 ? -1 : 1));
+    ctx.fillStyle = "#9cf";
+    ctx.fillRect(player.x + 4, player.y - 10 + bob, player.w - 8, 10);
+
+    // 방향 표시
+    ctx.fillStyle = "#001";
+    ctx.font = "12px monospace";
+    ctx.fillText(dirMark, player.x + 6, player.y + 16);
+  }
+
+  // 루프
+  let last = performance.now();
+  function loop(now) {
+    const dt = Math.min(0.033, (now - last) / 1000); // 최대 33ms
+    last = now;
+    update(dt);
+    draw();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
